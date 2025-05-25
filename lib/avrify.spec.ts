@@ -279,7 +279,11 @@ describe('avrify', () => {
         name: 'MyRecord',
         fields: [
           { name: 'name', type: 'string' },
-          { name: 'email', type: ['null', 'string'] },
+          {
+            default: null,
+            name: 'email',
+            type: ['null', 'string'],
+          },
         ],
       })
     })

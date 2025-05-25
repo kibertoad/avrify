@@ -27,3 +27,7 @@ expect(result).toEqual({
   ],
 })
 ```
+
+## Optional field handling
+
+Optional fields are represented as `null` in Avro, so optional fields will have their defaults set to `null` in generated Avro schemas.

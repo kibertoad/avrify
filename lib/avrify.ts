@@ -27,6 +27,7 @@ export interface AvroRecordType {
 export interface AvroField {
   name: string
   type: Schema
+  default?: unknown
   [key: string]: unknown
 }
 
@@ -127,9 +128,9 @@ const zodTypeHandlers: Record<string, AvroHandler> = {
 
     const recordName = pickAvroName(atTopLevel, config, ctx, mappedName, generatedName)
 
-    const fields: AvroField[] = Object.entries(def.shape()).map(([key, value]) => ({
-      name: sanitizeAvroFieldName(key),
-      type: zodToAvro(
+    const fields: AvroField[] = Object.entries(def.shape()).map(([key, value]) => {
+      // Generate the Avro type for this field
+      const fieldType = zodToAvro(
         value as ZodTypeAny,
         config,
         {
@@ -138,8 +139,15 @@ const zodTypeHandlers: Record<string, AvroHandler> = {
           recordNameCounter: ctx.recordNameCounter,
         },
         false,
-      ) as Schema,
-    }))
+      ) as Schema
+
+      // Add default: null if this is an optional/nullable field
+      if (Array.isArray(fieldType) && fieldType[0] === 'null') {
+        return { name: sanitizeAvroFieldName(key), type: fieldType, default: null }
+      }
+
+      return { name: sanitizeAvroFieldName(key), type: fieldType }
+    })
 
     return { type: 'record', name: recordName, fields }
   },
