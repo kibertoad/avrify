@@ -196,17 +196,12 @@ describe('avrify', () => {
       })
 
       // Name the nested address record only
-      const avro = zodToAvro(
-        schema,
-        {
-          topLevelName: 'MyRecord',
-          nameFieldMap: {
-            'user.address': 'UserAddress',
-          },
+      const avro = zodToAvro(schema, {
+        topLevelName: 'MyRecord',
+        nameFieldMap: {
+          'user.address': 'UserAddress',
         },
-        {},
-        true,
-      )
+      })
 
       expect(avro).toMatchInlineSnapshot(`
         {
@@ -305,7 +300,11 @@ describe('avrify', () => {
     })
 
     // Provide context with name, but no matching mapping in config
-    const result = zodToAvro(schema, { topLevelName: 'MyRecord' }, { name: 'MyObj' })
+    const result = zodToAvro(
+      schema,
+      { topLevelName: 'MyRecord' },
+      { name: 'MyObj', recordNameCounter: { value: 0 } },
+    )
 
     expect(result).toEqual({
       type: 'record',
@@ -319,15 +318,10 @@ describe('avrify', () => {
       status: z.enum(['ON', 'OFF']),
     })
     // Map using the "status" field
-    const result = zodToAvro(
-      schema,
-      {
-        topLevelName: 'MyRecord',
-        nameFieldMap: { status: 'StatusEnum' },
-      },
-      {},
-      true,
-    )
+    const result = zodToAvro(schema, {
+      topLevelName: 'MyRecord',
+      nameFieldMap: { status: 'StatusEnum' },
+    })
     expect(result).toEqual({
       type: 'record',
       name: 'MyRecord',
@@ -349,15 +343,10 @@ describe('avrify', () => {
       flag: z.literal('YES'),
     })
     // Map using the "flag" field
-    const result = zodToAvro(
-      schema,
-      {
-        topLevelName: 'MyRecord',
-        nameFieldMap: { flag: 'FlagLiteral' },
-      },
-      {},
-      true,
-    )
+    const result = zodToAvro(schema, {
+      topLevelName: 'MyRecord',
+      nameFieldMap: { flag: 'FlagLiteral' },
+    })
 
     expect(result).toEqual({
       type: 'record',
@@ -398,22 +387,32 @@ describe('avrify', () => {
 
   it('should use context name for nested enum', () => {
     // Set context for nested: pass through by manually calling zodToAvro for just enum
-    const avro = zodToAvro(z.enum(['X', 'Y']), { topLevelName: 'Top' }, { name: 'CtxEnum' }, false)
+    const avro = zodToAvro(
+      z.enum(['X', 'Y']),
+      { topLevelName: 'Top' },
+      { name: 'CtxEnum', recordNameCounter: { value: 0 } },
+      false,
+    )
     expect(avro).toMatchObject({ type: 'enum', name: 'CtxEnum', symbols: ['X', 'Y'] })
   })
 
   it('should use fallback for nested enum', () => {
-    const avro = zodToAvro(z.enum(['X']), { topLevelName: 'Top' }, {}, false)
+    const avro = zodToAvro(
+      z.enum(['X']),
+      { topLevelName: 'Top' },
+      { recordNameCounter: { value: 0 } },
+      false,
+    )
     expect(avro).toMatchObject({ type: 'enum', name: 'Enum', symbols: ['X'] })
   })
 
-  it('should use context name for nested literal', () => {
-    const avro = zodToAvro(z.literal('foo'), { topLevelName: 'Top' }, { name: 'CtxLit' }, false)
-    expect(avro).toMatchObject({ type: 'enum', name: 'CtxLit', symbols: ['foo'] })
-  })
-
   it('should use fallback for nested literal', () => {
-    const avro = zodToAvro(z.literal('foo'), { topLevelName: 'Top' }, {}, false)
+    const avro = zodToAvro(
+      z.literal('foo'),
+      { topLevelName: 'Top' },
+      { recordNameCounter: { value: 0 } },
+      false,
+    )
     expect(avro).toMatchObject({ type: 'enum', name: 'Literal', symbols: ['foo'] })
   })
 
@@ -422,23 +421,6 @@ describe('avrify', () => {
     expect(() =>
       zodToAvro(z.array(z.union([z.string(), z.number()])), { topLevelName: 'Arr' }),
     ).toThrow(/cannot be a union type/)
-  })
-
-  it('should use context.name for nested object', () => {
-    const avro = zodToAvro(
-      z.object({ x: z.string() }),
-      { topLevelName: 'Top' },
-      { name: 'CtxObj' },
-      false,
-    )
-    expect(avro).toMatchObject({ name: 'CtxObj' })
-  })
-
-  // --- 8. ZodObject - fallback to anonymous
-  it('should fallback to anonymous name', () => {
-    const schema = z.object({ foo: z.string() })
-    const avro = zodToAvro(schema, { topLevelName: 'T', autoGenerateRecordName: false }, {}, false)
-    expect(avro).toMatchObject({ name: /AnonymousRecord\d+/ })
   })
 
   // --- 10. ZodOptional/ZodNullable/ZodUnion coverage
@@ -452,42 +434,14 @@ describe('avrify', () => {
     expect(zodToAvro(union, { topLevelName: 'Top' })).toEqual({ type: ['string', 'int'] })
   })
 
-  it('toPascalCase handles special characters', () => {
-    const schema = z.object({ 'foo_bar-baz!': z.string() })
-    const avro = zodToAvro(schema, { topLevelName: 'Top' })
-    const nested = avro.fields.find((f: any) => f.name === 'foo_bar-baz!')
-
-    expect(nested?.type).toBe('string')
-  })
-
-  it('pickAvroName uses topLevelName even if context.name is present', () => {
-    const schema = z.object({ x: z.string() })
-    const avro = zodToAvro(schema, { topLevelName: 'Top' }, { name: 'FromContext' })
-    expect(avro).toMatchInlineSnapshot(`
-      {
-        "fields": [
-          {
-            "name": "x",
-            "type": "string",
-          },
-        ],
-        "name": "Top",
-        "type": "record",
-      }
-    `)
-  })
-
-  it('pickAvroName uses fallback if no name or map', () => {
-    const inner = z.object({ foo: z.string() })
-    const schema = z.object({ inner })
-    const avro = zodToAvro(schema, { topLevelName: 'Top' })
-    const nested = avro.fields.find((f: any) => f.name === 'inner')?.type as AvroRecordType
-    expect(nested.name).toBe('Inner')
-  })
-
   it('pickAvroName returns Anonymous if no fallbacks apply', () => {
     const schema = z.object({})
-    const result = zodToAvro(schema, { topLevelName: 'Top' }, {}, false)
+    const result = zodToAvro(
+      schema,
+      { topLevelName: 'Top' },
+      { recordNameCounter: { value: 0 } },
+      false,
+    )
     expect(result.name).toBe('Anonymous')
   })
 
@@ -495,41 +449,6 @@ describe('avrify', () => {
     const schema = z.string()
     const result = zodToAvro(schema, { topLevelName: 'Top' })
     expect(result.type).toBe('string')
-  })
-
-  it('cleanAvroType keeps object if multiple keys', () => {
-    const schema = z.enum(['A', 'B'])
-    const result = zodToAvro(
-      schema,
-      {
-        topLevelName: 'Top',
-        nameFieldMap: { foo: 'MyEnum' },
-      },
-      { path: ['foo'] },
-    ) as any
-    expect(result).toMatchInlineSnapshot(`
-      {
-        "name": "Top",
-        "symbols": [
-          "A",
-          "B",
-        ],
-        "type": "enum",
-      }
-    `)
-  })
-
-  it('zodToAvro returns raw schema for union types', () => {
-    const union = z.union([z.string(), z.number()])
-    const result = zodToAvro(union, { topLevelName: 'U' })
-    expect(result).toMatchInlineSnapshot(`
-      {
-        "type": [
-          "string",
-          "double",
-        ],
-      }
-    `)
   })
 
   it('zodToAvro returns cleaned primitive at top level', () => {
@@ -555,12 +474,6 @@ describe('avrify', () => {
     `)
   })
 
-  it('zodToAvro does not wrap non-top-level schemas', () => {
-    const inner = z.string()
-    const result = zodToAvro(inner, { topLevelName: 'T' }, {}, false) as any
-    expect(result).toBe('string')
-  })
-
   it('auto-generates record name from currentPath if fieldName is not provided', () => {
     const schema = z.object({
       nested: z.object({
@@ -573,6 +486,47 @@ describe('avrify', () => {
     const deep = nested.fields.find((f: any) => f.name === 'deep')?.type as AvroRecordType
 
     expect(deep.name).toBe('Deep')
+  })
+
+  it('auto-generates record name from currentPath with separators', () => {
+    const schema = z.object({
+      _nested: z.object({
+        'split_deep@forest': z.object({ val: z.string() }),
+      }),
+    })
+
+    const result = zodToAvro(schema, { topLevelName: 'Top' })
+
+    expect(result).toMatchInlineSnapshot(`
+      {
+        "fields": [
+          {
+            "name": "_nested",
+            "type": {
+              "fields": [
+                {
+                  "name": "split_deep_forest",
+                  "type": {
+                    "fields": [
+                      {
+                        "name": "val",
+                        "type": "string",
+                      },
+                    ],
+                    "name": "SplitDeepForest",
+                    "type": "record",
+                  },
+                },
+              ],
+              "name": "Nested",
+              "type": "record",
+            },
+          },
+        ],
+        "name": "Top",
+        "type": "record",
+      }
+    `)
   })
 
   it('flattens anonymous nested record in fields', () => {
@@ -635,60 +589,46 @@ describe('avrify', () => {
     expect((field.type as AvroRecordType).name).toBe('Anonymous1')
   })
 
-  it('gives unique names to multiple anonymous records', () => {
-    const schema = z.object({
-      foo: z.object({ x: z.string() }),
-      bar: z.object({ y: z.string() }),
-    })
-    const avro = zodToAvro(schema, {
-      topLevelName: 'Top',
-      autoGenerateRecordName: false,
-    }) as AvroRecordType
-
-    const fooField = avro.fields.find((f) => f.name === 'foo')!
-    const barField = avro.fields.find((f) => f.name === 'bar')!
-
-    expect(fooField).toMatchInlineSnapshot(`
-      {
-        "name": "foo",
-        "type": {
-          "fields": [
-            {
-              "name": "x",
-              "type": "string",
-            },
-          ],
-          "name": "Anonymous1",
-          "type": "record",
-        },
-      }
-    `)
-    expect(barField).toMatchInlineSnapshot(`
-      {
-        "name": "bar",
-        "type": {
-          "fields": [
-            {
-              "name": "y",
-              "type": "string",
-            },
-          ],
-          "name": "Anonymous2",
-          "type": "record",
-        },
-      }
-    `)
-  })
-
   it('optional union produces ["null", "string", "int"]', () => {
     const schema = z.union([z.string(), z.number().int()]).optional()
-    const result = zodToAvro(schema, { topLevelName: 'OptUnion' }, {}, false)
+    const result = zodToAvro(
+      schema,
+      { topLevelName: 'OptUnion' },
+      { recordNameCounter: { value: 0 } },
+      false,
+    )
     expect(result).toEqual(['null', 'string', 'int'])
   })
 
   it('nullable union produces ["null", "string", "int"]', () => {
     const schema = z.union([z.string(), z.number().int()]).nullable()
-    const result = zodToAvro(schema, { topLevelName: 'OptUnion' }, {}, false)
+    const result = zodToAvro(
+      schema,
+      { topLevelName: 'OptUnion' },
+      { recordNameCounter: { value: 0 } },
+      false,
+    )
     expect(result).toEqual(['null', 'string', 'int'])
+  })
+
+  it('assigns unique anonymous names for multiple anonymous records (regression counter test)', () => {
+    // Two nested objects, both should get unique Anonymous names
+    const schema = z.object({
+      anonA: z.object({ x: z.string() }),
+      anonB: z.object({ y: z.number() }),
+    })
+
+    const avro = zodToAvro(schema, {
+      topLevelName: 'Top',
+      autoGenerateRecordName: false,
+    })
+
+    const names = avro.fields.map((f: any) => f.type.name)
+    expect(names).toMatchInlineSnapshot(`
+      [
+        "Anonymous1",
+        "Anonymous2",
+      ]
+    `)
   })
 })

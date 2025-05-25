@@ -1,18 +1,18 @@
 import type { Schema } from 'avsc'
 import type { ZodObject, ZodTypeAny, ZodUnion } from 'zod'
+import { sanitizeAvroFieldName, toPascalCaseAvroName } from './nameUtils.js'
 
-// ==== Config Types ====
 export interface ZodToAvroConfig {
-  topLevelName: string // required!
+  topLevelName: string
   nameFieldMap?: Record<string, string>
-  autoGenerateRecordName?: boolean // default: true
+  autoGenerateRecordName?: boolean
 }
 
 interface AvroContext {
   name?: string
   path?: string[]
   fieldName?: string
-  recordNameCounter?: { value: number }
+  recordNameCounter: { value: number }
 }
 
 export interface AvroRecordType {
@@ -30,25 +30,6 @@ export interface AvroField {
   [key: string]: unknown
 }
 
-function getOrInitCounter(ctx?: AvroContext): { value: number } {
-  if (!ctx?.recordNameCounter) {
-    const newCounter = { value: 0 }
-    if (ctx) ctx.recordNameCounter = newCounter
-    return newCounter
-  }
-  return ctx.recordNameCounter
-}
-
-function toPascalCase(name: string): string {
-  return name
-    .replace(/[^A-Za-z0-9_ ]/g, ' ')
-    .split(/[\s_-]+/)
-    .filter(Boolean)
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join('')
-}
-
-// === Shared Naming Utility ===
 function pickAvroName(
   atTopLevel: boolean,
   config: ZodToAvroConfig,
@@ -58,16 +39,13 @@ function pickAvroName(
 ): string {
   if (atTopLevel) return config.topLevelName
   if (mappedName) return mappedName
-  if (ctx?.name) return ctx.name
+  if (ctx?.name) return sanitizeAvroFieldName(ctx.name)
   if (fallback) return fallback
   return 'Anonymous'
 }
 
 function ensureNonUnionForArrayItem(item: unknown, contextMsg = "Avro array 'items'"): Schema {
   if (Array.isArray(item)) {
-    // Cannot be hit in reality, defensive code in case Zod behaviour changes
-    /* v8 ignore next 1 */
-    if (item.length === 1 && item[0] !== undefined && item[0] !== null) return item[0] as Schema
     throw new Error(`${contextMsg} cannot be a union type: ${JSON.stringify(item)}`)
   }
   return item as Schema
@@ -81,73 +59,55 @@ type AvroHandler = (
 ) => Schema | Schema[]
 
 const zodTypeHandlers: Record<string, AvroHandler> = {
-  ZodString: (_schema) => 'string',
+  ZodString: () => 'string',
   ZodNumber: (schema) => {
     const def = schema._def
-    let avroType: Schema = 'double'
     if (def.checks) {
       for (const check of def.checks) {
-        if (check.kind === 'int') avroType = 'int'
+        if (check.kind === 'int') return 'int'
       }
     }
-    return avroType
+    return 'double'
   },
-  ZodBoolean: (_schema) => 'boolean',
+  ZodBoolean: () => 'boolean',
 
   ZodEnum: (schema, config, ctx, atTopLevel) => {
     const def = schema._def
     const path = ctx?.path ? [...ctx.path] : []
-    if (!atTopLevel && ctx?.fieldName) {
-      path.push(ctx.fieldName)
-    }
+    if (!atTopLevel && ctx?.fieldName) path.push(ctx.fieldName)
     let mappedName: string | undefined
     if (config?.nameFieldMap) {
       const pathStr = path.join('.')
       mappedName = config.nameFieldMap[pathStr]
     }
     const name = pickAvroName(atTopLevel, config, ctx, mappedName, 'Enum')
-    return {
-      type: 'enum',
-      name,
-      symbols: def.values,
-    }
+    return { type: 'enum', name, symbols: def.values }
   },
 
   ZodLiteral: (schema, config, ctx, atTopLevel) => {
     const def = schema._def
     const path = ctx?.path ? [...ctx.path] : []
-    if (!atTopLevel && ctx?.fieldName) {
-      path.push(ctx.fieldName)
-    }
+    if (!atTopLevel && ctx?.fieldName) path.push(ctx.fieldName)
     let mappedName: string | undefined
     if (config?.nameFieldMap) {
       const pathStr = path.join('.')
       mappedName = config.nameFieldMap[pathStr]
     }
     const name = pickAvroName(atTopLevel, config, ctx, mappedName, 'Literal')
-    return {
-      type: 'enum',
-      name,
-      symbols: [def.value],
-    }
+    return { type: 'enum', name, symbols: [def.value] }
   },
 
   ZodArray: (schema, config, ctx, _atTopLevel) => {
     const def = schema._def
     const itemType = zodToAvro(def.type, config, ctx, false)
-    return {
-      type: 'array',
-      items: ensureNonUnionForArrayItem(itemType, "Array 'items'"),
-    }
+    return { type: 'array', items: ensureNonUnionForArrayItem(itemType, "Array 'items'") }
   },
 
   ZodObject: (schema, config, ctx, atTopLevel) => {
     const def = schema._def
-    const path = ctx?.path ? [...ctx.path] : []
+    const path = ctx?.path ? ctx.path : []
     const currentPath = [...path]
-    if (!atTopLevel && ctx?.fieldName) {
-      currentPath.push(ctx.fieldName)
-    }
+    if (!atTopLevel && ctx?.fieldName) currentPath.push(ctx.fieldName)
 
     let mappedName: string | undefined
     if (config?.nameFieldMap) {
@@ -156,37 +116,32 @@ const zodTypeHandlers: Record<string, AvroHandler> = {
     }
 
     const autoGen = config.autoGenerateRecordName !== false
-    const counter = getOrInitCounter(ctx)
-
     let generatedName: string | undefined
+
     if (autoGen && ctx?.fieldName) {
-      generatedName = toPascalCase(ctx.fieldName)
+      generatedName = toPascalCaseAvroName(ctx.fieldName)
     } else if (!autoGen) {
-      // Always increment and assign unique anonymous name
-      generatedName = `Anonymous${counter.value++}`
+      // Anonymous, always increment
+      generatedName = `Anonymous${ctx.recordNameCounter.value++}`
     }
 
     const recordName = pickAvroName(atTopLevel, config, ctx, mappedName, generatedName)
 
     const fields: AvroField[] = Object.entries(def.shape()).map(([key, value]) => ({
-      name: key,
+      name: sanitizeAvroFieldName(key),
       type: zodToAvro(
         value as ZodTypeAny,
         config,
         {
-          path: [...currentPath],
+          path: currentPath,
           fieldName: key,
-          recordNameCounter: counter,
+          recordNameCounter: ctx.recordNameCounter,
         },
         false,
       ) as Schema,
     }))
 
-    return {
-      type: 'record',
-      name: recordName,
-      fields,
-    }
+    return { type: 'record', name: recordName, fields }
   },
 
   ZodOptional: (schema, config, ctx, _atTopLevel) => {
@@ -233,7 +188,7 @@ export function zodToAvro<
     isUnionType?: TIsUnion
     isObjectType?: TIsObject
   },
-  context: AvroContext = {},
+  context: AvroContext = { recordNameCounter: { value: 0 } },
   atTopLevel: TTopLevel = true as TTopLevel,
 ): TIsObject extends true
   ? AvroRecordType
