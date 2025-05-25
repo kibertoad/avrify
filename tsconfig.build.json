@@ -1,0 +1,8 @@
+{
+    "extends": ["./tsconfig.json", "@lokalise/tsconfig/build-public-lib"],
+    "compilerOptions": {
+        "types": ["node"]
+    },
+    "include": ["lib/**/*", "index.ts"],
+    "exclude": ["lib/**/*.spec.ts"]
+}
