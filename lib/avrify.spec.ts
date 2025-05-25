@@ -635,4 +635,35 @@ describe('avrify', () => {
       ]
     `)
   })
+
+  it('should map z.string().datetime() to Avro logicalType timestamp-millis', () => {
+    const schema = z.object({
+      createdAt: z.string().datetime(),
+      message: z.string(),
+    })
+    const avroSchema = zodToAvro(schema, { topLevelName: 'DateRecord' })
+
+    expect(avroSchema).toEqual({
+      type: 'record',
+      name: 'DateRecord',
+      fields: [
+        { name: 'createdAt', type: { type: 'long', logicalType: 'timestamp-millis' } },
+        { name: 'message', type: 'string' },
+      ],
+    })
+  })
+
+  it('should generate correct Avro logicalType for date and roundtrip with ISO date string', () => {
+    const schema = z.object({
+      dateField: z.string().date(),
+    })
+
+    const avroSchema = zodToAvro(schema, { topLevelName: 'UserBirthday' })
+
+    expect(avroSchema).toEqual({
+      type: 'record',
+      name: 'UserBirthday',
+      fields: [{ name: 'dateField', type: { type: 'int', logicalType: 'date' } }],
+    })
+  })
 })

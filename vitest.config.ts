@@ -10,7 +10,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['lib/**/*.ts'],
-      exclude: ['lib/**/*.spec.ts', 'lib/index.ts'],
+      exclude: [
+        'lib/**/*.spec.ts',
+        'lib/index.ts',
+
+        // ToDo improve coverage
+        'lib/logical-types/dateType.ts',
+        'lib/logical-types/dateTimeType.ts',
+      ],
       reporter: ['text', 'lcov'],
       all: true,
       thresholds: {

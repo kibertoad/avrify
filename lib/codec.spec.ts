@@ -1,6 +1,8 @@
 import { Type } from 'avsc'
 import { z } from 'zod'
 import { zodToAvro } from './avrify.js'
+import { IsoDateTimeStringMillis } from './logical-types/dateTimeType.js'
+import { IsoDateStringDays } from './logical-types/dateType.js'
 
 describe('Coding and decoding with generated avro schemas', () => {
   it('should perform lossless conversion for flat schema', () => {
@@ -110,5 +112,47 @@ describe('Coding and decoding with generated avro schemas', () => {
     const avroType = Type.forSchema(avroSchema)
 
     expect(() => avroType.toBuffer({ score: 'notANumber' })).toThrow()
+  })
+
+  it('should encode and decode ISO datetime strings with Avro logicalType timestamp-millis', () => {
+    const schema = z.object({
+      createdAt: z.string().datetime(),
+    })
+
+    const avroSchema = zodToAvro(schema, { topLevelName: 'DateRecord' })
+    const avroType = Type.forSchema(avroSchema, {
+      logicalTypes: { 'timestamp-millis': IsoDateTimeStringMillis },
+    })
+
+    // Input as ISO string, output as ISO string (avsc parses timestamp-millis as JS Date)
+    const isoString = '2024-06-05T12:34:56.789Z'
+    const input = { createdAt: isoString }
+
+    // Avro will encode as millis, decode as JS Date
+    const encoded = avroType.toBuffer(input)
+    const decoded = avroType.fromBuffer(encoded)
+
+    // avsc will decode logicalType timestamp-millis as Date object
+    expect(decoded).toHaveProperty('createdAt')
+    expect(decoded.createdAt).toEqual(isoString)
+  })
+
+  it('should encode and decode ISO date strings with Avro logicalType date', () => {
+    const schema = z.object({
+      dob: z.string().date(),
+    })
+
+    const avroSchema = zodToAvro(schema, { topLevelName: 'UserBirthday' })
+    const avroType = Type.forSchema(avroSchema, {
+      logicalTypes: { date: IsoDateStringDays },
+    })
+
+    const isoDate = '2024-06-10'
+    const input = { dob: isoDate }
+
+    const encoded = avroType.toBuffer(input)
+    const decoded = avroType.fromBuffer(encoded)
+
+    expect(decoded.dob).toEqual(isoDate)
   })
 })

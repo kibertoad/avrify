@@ -31,3 +31,18 @@ expect(result).toEqual({
 ## Optional field handling
 
 Optional fields are represented as `null` in Avro, so optional fields will have their defaults set to `null` in generated Avro schemas.
+
+## Date handling
+
+In case you would like to have automatic conversion between Zod z.string().datetime() to Avro long, as well as z.string().date() to Avro int, and vice-versa, you need to register extra logical types:
+
+```ts
+const avroDateTimeType = Type.forSchema(avroSchema, {
+  logicalTypes: {
+    // for datetime
+    'timestamp-millis': IsoDateTimeStringMillis,
+    // for date
+    date: IsoDateStringDays
+  }
+});
+```

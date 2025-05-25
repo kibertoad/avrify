@@ -1,6 +1,6 @@
 import type { Schema } from 'avsc'
 import type { ZodObject, ZodTypeAny, ZodUnion } from 'zod'
-import { sanitizeAvroFieldName, toPascalCaseAvroName } from './nameUtils.js'
+import { sanitizeAvroFieldName, toPascalCaseAvroName } from './utils/nameUtils.js'
 
 export interface ZodToAvroConfig {
   topLevelName: string
@@ -60,7 +60,27 @@ type AvroHandler = (
 ) => Schema | Schema[]
 
 const zodTypeHandlers: Record<string, AvroHandler> = {
-  ZodString: () => 'string',
+  ZodString: (schema) => {
+    // biome-ignore lint/suspicious/noExplicitAny : should be safe
+    const def = schema._def as any
+    // Zod's .datetime() adds kind: 'datetime' or refinement: 'datetime'
+    const isDatetime = def.checks?.some?.(
+      // biome-ignore lint/suspicious/noExplicitAny : should be safe
+      (c: any) => c.kind === 'datetime' || c.refinement === 'datetime',
+    )
+    // Zod's .date() adds kind: 'date' or refinement: 'date'
+    // biome-ignore lint/suspicious/noExplicitAny : should be safe
+    const isDate = def.checks?.some?.((c: any) => c.kind === 'date' || c.refinement === 'date')
+
+    if (isDatetime) {
+      return { type: 'long', logicalType: 'timestamp-millis' }
+    }
+    if (isDate) {
+      return { type: 'int', logicalType: 'date' }
+    }
+    return 'string'
+  },
+
   ZodNumber: (schema) => {
     const def = schema._def
     if (def.checks) {
