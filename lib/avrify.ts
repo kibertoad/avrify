@@ -169,6 +169,19 @@ const zodTypeHandlers: Record<string, AvroHandler> = {
   },
 }
 
+/**
+ * Recursively normalizes Avro field types by unwrapping simple types.
+ *
+ * - If an Avro type is an object with only a single key `type` whose value is a string (e.g. `{ type: "int" }`),
+ *   this function converts it to the string itself (`"int"`).
+ * - Complex objects (e.g. enums, records, logical types, or types with constraints or multiple properties)
+ *   are left as objects to preserve important metadata.
+ * - Arrays are traversed recursively, ensuring all elements are normalized.
+ * - This helps produce Avro schemas that are as concise and canonical as possible.
+ *
+ * @param {unknown} avroType - The Avro type or schema to normalize.
+ * @returns {unknown} - The normalized Avro type/schema, with simple types unwrapped to strings where possible.
+ */
 function cleanAvroType(avroType: unknown): unknown {
   if (Array.isArray(avroType)) {
     return avroType.map(cleanAvroType)
